@@ -5,7 +5,12 @@ from io import BytesIO
 st.set_page_config(page_title="Excel Sheet Merger", layout="wide")
 
 st.title("📊 Excel Sheet Merger Tool")
-st.write("Upload multiple Excel files and merge selected sheets into one combined Excel file.")
+
+st.write("""
+Upload multiple Excel files and choose how to merge:
+- **Single sheet:** Combine all selected sheets into one.
+- **Multiple sheets:** Keep each sheet separate (original names preserved).
+""")
 
 uploaded_files = st.file_uploader(
     "Upload your Excel files here",
@@ -30,31 +35,60 @@ if uploaded_files:
         except Exception as e:
             st.error(f"Error reading {uploaded_file.name}: {e}")
 
-    if st.button("🔄 Merge Selected Sheets"):
+    st.subheader("Merge Options")
+    merge_mode = st.radio(
+        "Choose how to merge your selected sheets:",
+        ("Single Sheet (Combine All)", "Multiple Sheets (Keep Original Names)")
+    )
+
+    output_name = st.text_input(
+        "Enter output file name (without extension):",
+        value="merged_output"
+    )
+
+    if st.button("🔄 Merge and Download"):
         merged_data = []
 
-        for file, sheets in selected_sheets.items():
-            for sheet in sheets:
-                try:
-                    df = pd.read_excel(file, sheet_name=sheet)
-                    df["Source_File"] = file.name
-                    df["Source_Sheet"] = sheet
-                    merged_data.append(df)
-                except Exception as e:
-                    st.warning(f"Skipping {file.name} - {sheet}: {e}")
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            if merge_mode == "Single Sheet (Combine All)":
+                # Combine everything into one dataframe
+                for file, sheets in selected_sheets.items():
+                    for sheet in sheets:
+                        try:
+                            df = pd.read_excel(file, sheet_name=sheet)
+                            df["Source_File"] = file.name
+                            df["Source_Sheet"] = sheet
+                            merged_data.append(df)
+                        except Exception as e:
+                            st.warning(f"Skipping {file.name} - {sheet}: {e}")
 
-        if merged_data:
-            result_df = pd.concat(merged_data, ignore_index=True)
-            st.success(f"Merged {len(merged_data)} sheets successfully!")
-            st.dataframe(result_df.head(50))
+                if merged_data:
+                    result_df = pd.concat(merged_data, ignore_index=True)
+                    result_df.to_excel(writer, index=False, sheet_name="Merged_Data")
+                    st.success(f"Merged {len(merged_data)} sheets into one sheet successfully!")
+                    st.dataframe(result_df.head(50))
+                else:
+                    st.warning("No valid sheets to merge!")
 
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                result_df.to_excel(writer, index=False, sheet_name="Merged_Data")
+            else:  # Multiple sheets mode
+                for file, sheets in selected_sheets.items():
+                    for sheet in sheets:
+                        try:
+                            df = pd.read_excel(file, sheet_name=sheet)
+                            sheet_name = f"{file.name[:20]}_{sheet}"[:31]  # Excel sheet name limit = 31 chars
+                            df.to_excel(writer, index=False, sheet_name=sheet_name)
+                        except Exception as e:
+                            st.warning(f"Skipping {file.name} - {sheet}: {e}")
 
-            st.download_button(
-                label="📥 Download Merged Excel File",
-                data=output.getvalue(),
-                file_name="merged_output.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+                st.success("All selected sheets were added as separate sheets in the output file.")
+
+        # Finalize output
+        writer.close()
+
+        st.download_button(
+            label="📥 Download Excel File",
+            data=output.getvalue(),
+            file_name=f"{output_name}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
