@@ -47,12 +47,14 @@ if uploaded_files:
     )
 
     if st.button("🔄 Merge and Download"):
-        merged_data = []
-
         output = BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+
+        # ✅ Create writer outside 'with' so we can manually close after writing
+        writer = pd.ExcelWriter(output, engine="openpyxl")
+
+        try:
             if merge_mode == "Single Sheet (Combine All)":
-                # Combine everything into one dataframe
+                merged_data = []
                 for file, sheets in selected_sheets.items():
                     for sheet in sheets:
                         try:
@@ -76,19 +78,21 @@ if uploaded_files:
                     for sheet in sheets:
                         try:
                             df = pd.read_excel(file, sheet_name=sheet)
-                            sheet_name = f"{file.name[:20]}_{sheet}"[:31]  # Excel sheet name limit = 31 chars
+                            sheet_name = f"{file.name[:20]}_{sheet}"[:31]
                             df.to_excel(writer, index=False, sheet_name=sheet_name)
                         except Exception as e:
                             st.warning(f"Skipping {file.name} - {sheet}: {e}")
 
                 st.success("All selected sheets were added as separate sheets in the output file.")
+        finally:
+            writer.close()  # ✅ Explicit close to finalize the workbook
 
-        # Finalize output
-        writer.close()
+        # ✅ Move buffer to start before download
+        output.seek(0)
 
         st.download_button(
             label="📥 Download Excel File",
-            data=output.getvalue(),
+            data=output,
             file_name=f"{output_name}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
